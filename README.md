@@ -52,6 +52,13 @@ asset, err := client.Upload(ctx, dreep.UploadOptions{
 small := client.URL(asset.ID, &dreep.Transform{Width: 400})
 ```
 
+A runnable version of this lives in [`examples/upload`](examples/upload):
+
+```sh
+export DREEP_API_KEY=drp_live_...
+go run ./examples/upload path/to/image.jpg
+```
+
 ## API surface
 
 | Method | Endpoint |

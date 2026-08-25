@@ -155,10 +155,10 @@ func TestRetryDelayHonorsRetryAfterAndBackoff(t *testing.T) {
 		attempt    int
 		want       time.Duration
 	}{
-		{"3", 0, 3 * time.Second},          // Retry-After wins
-		{"0", 5, 0},                        // immediate retry allowed
-		{"", 0, time.Millisecond},          // base
-		{"", 2, 4 * time.Millisecond},      // base << attempt
+		{"3", 0, 3 * time.Second},     // Retry-After wins
+		{"0", 5, 0},                   // immediate retry allowed
+		{"", 0, time.Millisecond},     // base
+		{"", 2, 4 * time.Millisecond}, // base << attempt
 		{"garbage", 1, 2 * time.Millisecond},
 	}
 	base := time.Millisecond
