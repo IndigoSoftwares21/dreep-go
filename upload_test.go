@@ -93,6 +93,35 @@ func TestUploadSendsMultipartFields(t *testing.T) {
 	}
 }
 
+func TestUploadKnownSizeSetsExactContentLength(t *testing.T) {
+	var gotLen int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotLen = r.ContentLength
+		body, _ := io.ReadAll(r.Body)
+		if int64(len(body)) != gotLen {
+			t.Errorf("body length %d != ContentLength %d", len(body), gotLen)
+		}
+		json.NewEncoder(w).Encode(map[string]any{"id": "med_1"})
+	}))
+	defer srv.Close()
+
+	c, _ := New("k", WithAPIBaseURL(srv.URL))
+	_, err := c.Upload(context.Background(), UploadOptions{
+		File:        strings.NewReader("JPEGDATA"),
+		Filename:    "hero.jpg",
+		ContentType: "image/jpeg",
+		Transform:   &Transform{Width: 800, Format: FormatWebP},
+		KnownSize:   8,
+	})
+	if err != nil {
+		t.Fatalf("Upload: %v", err)
+	}
+	// The file alone is 8 bytes; multipart overhead must be included.
+	if gotLen <= 8 {
+		t.Errorf("ContentLength = %d, want file size plus multipart overhead", gotLen)
+	}
+}
+
 func TestUploadValidation(t *testing.T) {
 	c, _ := New("k")
 	ctx := context.Background()
