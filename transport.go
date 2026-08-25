@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
+	"time"
 )
 
 const maxErrBody = 1 << 20 // 1 MiB cap on buffered error bodies
@@ -37,12 +39,13 @@ func (c *Client) doJSON(ctx context.Context, method, path string, query url.Valu
 	return c.do(req, out)
 }
 
-// do executes req, maps non-2xx responses to *Error, and decodes a JSON
-// response into out (which may be nil).
+// do executes req, retrying 429/5xx responses with exponential backoff while
+// the request body is replayable, maps remaining non-2xx responses to *Error,
+// and decodes a JSON response into out (which may be nil).
 func (c *Client) do(req *http.Request, out any) error {
-	resp, err := c.HTTP.Do(req)
+	resp, err := c.sendWithRetries(req)
 	if err != nil {
-		return fmt.Errorf("dreep: %w", err)
+		return err
 	}
 	if resp.StatusCode >= 400 {
 		return c.errorFromResponse(resp)
@@ -79,6 +82,68 @@ func decodeJSONBody(resp *http.Response, out any) error {
 func drainAndClose(resp *http.Response) {
 	io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
 	resp.Body.Close()
+}
+
+// sendWithRetries performs the request, retrying on 429/5xx up to maxRetries
+// times. Requests whose body cannot be replayed (streaming uploads built on
+// io.Pipe carry no GetBody function) are never retried, so a failed upload
+// can never duplicate an asset.
+func (c *Client) sendWithRetries(req *http.Request) (*http.Response, error) {
+	for attempt := 0; ; attempt++ {
+		resp, err := c.HTTP.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("dreep: %w", err)
+		}
+		bodyReplayable := req.Body == nil || req.GetBody != nil
+		if !retryableStatus(resp.StatusCode) || attempt >= c.maxRetries || !bodyReplayable {
+			return resp, nil
+		}
+		delay := retryDelay(c.retryBaseDelay, attempt, resp.Header.Get("Retry-After"))
+		drainAndClose(resp)
+		if err := sleepCtx(req.Context(), delay); err != nil {
+			return nil, fmt.Errorf("dreep: %w", err)
+		}
+		if req.Body != nil {
+			b, err := req.GetBody()
+			if err != nil {
+				return nil, fmt.Errorf("dreep: replaying request body: %w", err)
+			}
+			req.Body = b
+		}
+	}
+}
+
+// retryableStatus reports whether a response code is worth retrying:
+// 429 Too Many Requests and anything in the 5xx range.
+func retryableStatus(code int) bool {
+	return code == http.StatusTooManyRequests || code >= 500
+}
+
+// retryDelay computes the wait before a retry: an explicit Retry-After
+// header wins; otherwise the base delay doubles per attempt.
+func retryDelay(base time.Duration, attempt int, retryAfter string) time.Duration {
+	if secs, err := strconv.Atoi(strings.TrimSpace(retryAfter)); err == nil && secs >= 0 {
+		return time.Duration(secs) * time.Second
+	}
+	d := base << attempt
+	if d < base { // shift overflowed
+		return time.Minute
+	}
+	return d
+}
+
+func sleepCtx(ctx context.Context, d time.Duration) error {
+	if d <= 0 {
+		return ctx.Err()
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
 }
 
 // newRequest builds an authenticated request against the Dreep API.

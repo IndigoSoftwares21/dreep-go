@@ -30,6 +30,9 @@ const (
 
 	// DefaultCDNBaseURL is the root of Dreep's public asset delivery URL.
 	DefaultCDNBaseURL = "https://cdn.dreep.cloud/api/v1/fetch"
+
+	defaultMaxRetries     = 2
+	defaultRetryBaseDelay = 500 * time.Millisecond
 )
 
 // Client is a Dreep API client. It is safe for concurrent use by multiple
@@ -50,6 +53,14 @@ type Client struct {
 	// Bound requests with context deadlines instead.
 	HTTP *http.Client
 
+	// maxRetries is how many times a replayable request is retried on a
+	// 429 or 5xx response, with exponential backoff. 0 disables retries.
+	maxRetries int
+
+	// retryBaseDelay is the backoff for the first retry; each subsequent
+	// retry doubles it (capped by any Retry-After header).
+	retryBaseDelay time.Duration
+
 	// now is injectable for deterministic signed-URL tests.
 	now func() time.Time
 }
@@ -65,11 +76,13 @@ func New(apiKey string, opts ...Option) (*Client, error) {
 		return nil, errors.New("dreep: apiKey is required")
 	}
 	c := &Client{
-		apiKey:     apiKey,
-		APIBaseURL: DefaultAPIBaseURL,
-		CDNBaseURL: DefaultCDNBaseURL,
-		HTTP:       &http.Client{},
-		now:        time.Now,
+		apiKey:         apiKey,
+		APIBaseURL:     DefaultAPIBaseURL,
+		CDNBaseURL:     DefaultCDNBaseURL,
+		HTTP:           &http.Client{},
+		maxRetries:     defaultMaxRetries,
+		retryBaseDelay: defaultRetryBaseDelay,
+		now:            time.Now,
 	}
 	for _, opt := range opts {
 		if err := opt(c); err != nil {
@@ -117,6 +130,33 @@ func WithHTTPClient(hc *http.Client) Option {
 			return errors.New("dreep: http.Client must not be nil")
 		}
 		c.HTTP = hc
+		return nil
+	}
+}
+
+// WithMaxRetries sets how many times a request with a replayable body is
+// retried after a 429 or 5xx response, using exponential backoff. The default
+// is 2 (three attempts in total); 0 disables retries. Streaming bodies — such
+// as multipart uploads — cannot be replayed and are never retried.
+func WithMaxRetries(n int) Option {
+	return func(c *Client) error {
+		if n < 0 {
+			return errors.New("dreep: max retries must not be negative")
+		}
+		c.maxRetries = n
+		return nil
+	}
+}
+
+// WithRetryBaseDelay sets the wait before the first retry; every further
+// retry doubles it. A Retry-After response header overrides the computed
+// delay. Defaults to 500ms.
+func WithRetryBaseDelay(d time.Duration) Option {
+	return func(c *Client) error {
+		if d < 0 {
+			return errors.New("dreep: retry base delay must not be negative")
+		}
+		c.retryBaseDelay = d
 		return nil
 	}
 }

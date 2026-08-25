@@ -102,6 +102,23 @@ signed, err := client.SignedURL("med_123", time.Hour, nil)
 The signature is an HMAC-SHA256 hex digest of `<assetID>:<expires>` keyed with
 your project's URL Signing Secret; transforms stay free to vary at delivery.
 
+## Retries
+
+Requests with replayable bodies are automatically retried on **429** and **5xx**
+responses — 2 retries (3 attempts total) by default, waiting 500ms before the
+first retry and doubling from there. A `Retry-After` response header always
+overrides the computed delay.
+
+```go
+client, _ := dreep.New(key,
+    dreep.WithMaxRetries(4),                      // 0 disables retries
+    dreep.WithRetryBaseDelay(200*time.Millisecond),
+)
+```
+
+Streaming uploads are never retried — their bodies cannot be replayed, so a
+failed upload can never duplicate an asset.
+
 ## Errors
 
 Every non-2xx response decodes into `*dreep.Error` with helpers:
