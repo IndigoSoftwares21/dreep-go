@@ -150,6 +150,16 @@ go test ./... -count=1   # httptest-backed unit tests, no network needed
 go vet ./...
 ```
 
+A live end-to-end smoke test (upload → list → delivery URL → usage → delete)
+runs against the real API when credentials are provided:
+
+```
+DREEP_API_KEY=drp_live_... go test -tags live -run TestLiveSmoke -v
+```
+
+It is excluded from normal builds and skipped without `DREEP_API_KEY`;
+set `DREEP_DEBUG=1` to log raw response bodies.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).

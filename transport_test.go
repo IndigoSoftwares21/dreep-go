@@ -3,10 +3,48 @@ package dreep
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
+
+func TestResponseEnvelopeUnwrapped(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(201)
+		io.WriteString(w, `{"message":"Upload successful","code":201,"data":{"id":"med_env","url":"https://cdn/x.webp","status":"ready"}}`)
+	}))
+	defer srv.Close()
+
+	c, _ := New("k", WithAPIBaseURL(srv.URL))
+	asset, err := c.Upload(context.Background(), UploadOptions{
+		File:     strings.NewReader("x"),
+		Filename: "a.png",
+	})
+	if err != nil {
+		t.Fatalf("Upload: %v", err)
+	}
+	if asset.ID != "med_env" || asset.Status != "ready" {
+		t.Errorf("asset = %+v", asset)
+	}
+}
+
+func TestPlainBodyStillDecodes(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `{"assets":[{"id":"med_1"}],"pagination":{"page":1,"limit":20,"total":1}}`)
+	}))
+	defer srv.Close()
+
+	c, _ := New("k", WithAPIBaseURL(srv.URL))
+	page, err := c.ListMedia(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ListMedia: %v", err)
+	}
+	if len(page.Assets) != 1 || page.Assets[0].ID != "med_1" || page.Pagination.Total != 1 {
+		t.Errorf("page = %+v", page)
+	}
+}
 
 func TestErrorMappingDocumentedShape(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -54,11 +54,42 @@ func (c *Client) do(req *http.Request, out any) error {
 		drainAndClose(resp)
 		return nil
 	}
-	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
-		drainAndClose(resp)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxErrBody))
+	drainAndClose(resp)
+	if err != nil {
+		return fmt.Errorf("dreep: reading response: %w", err)
+	}
+	if err := decodeAPIBody(body, out); err != nil {
+		return err
+	}
+	return nil
+}
+
+// decodeAPIBody decodes one successful response body into out. The Dreep API
+// wraps most success payloads in an envelope:
+//
+//	{"message": "Upload successful", "code": 201, "data": {…}}
+//
+// so the "data" member is unwrapped when present alongside the envelope's
+// "message"/"code" keys. Bodies without those markers are decoded as-is.
+func decodeAPIBody(body []byte, out any) error {
+	if len(bytes.TrimSpace(body)) == 0 {
+		return nil
+	}
+	var probe struct {
+		Message *string         `json:"message"`
+		Code    json.RawMessage `json:"code"`
+		Data    json.RawMessage `json:"data"`
+	}
+	payload := body
+	if json.Unmarshal(body, &probe) == nil &&
+		len(probe.Data) > 0 && string(probe.Data) != "null" &&
+		(probe.Message != nil || len(probe.Code) > 0) {
+		payload = probe.Data
+	}
+	if err := json.Unmarshal(payload, out); err != nil {
 		return fmt.Errorf("dreep: decoding response: %w", err)
 	}
-	drainAndClose(resp)
 	return nil
 }
 
@@ -70,13 +101,7 @@ func decodeJSONBody(resp *http.Response, out any) error {
 	if err != nil {
 		return fmt.Errorf("dreep: reading response: %w", err)
 	}
-	if len(bytes.TrimSpace(body)) == 0 {
-		return nil
-	}
-	if err := json.Unmarshal(body, out); err != nil {
-		return fmt.Errorf("dreep: decoding response: %w", err)
-	}
-	return nil
+	return decodeAPIBody(body, out)
 }
 
 func drainAndClose(resp *http.Response) {

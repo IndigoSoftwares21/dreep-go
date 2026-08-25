@@ -52,9 +52,16 @@ type UploadOptions struct {
 
 	Transform *Transform
 
-	// KnownSize, when positive, is passed as the request ContentLength.
+	// KnownSize, when positive, is the size of File in bytes. The client
+	// uses it to compute the exact request ContentLength (file plus multipart
+	// overhead), avoiding chunked transfer encoding. If it does not match the
+	// actual number of bytes read, the request fails.
 	KnownSize int64
 }
+
+// uploadBoundary is a fixed multipart boundary so that the body length can
+// be measured exactly when UploadOptions.KnownSize is set.
+const uploadBoundary = "dreepgo0123456789abcdefghijklmnopqrstuv"
 
 func (c *Client) Upload(ctx context.Context, o UploadOptions) (*MediaAsset, error) {
 	if o.File == nil {
@@ -69,6 +76,7 @@ func (c *Client) Upload(ctx context.Context, o UploadOptions) (*MediaAsset, erro
 
 	pr, pw := io.Pipe()
 	mw := multipart.NewWriter(pw)
+	mw.SetBoundary(uploadBoundary)
 	go func() {
 		pw.CloseWithError(writeUploadForm(mw, o))
 	}()
@@ -79,7 +87,12 @@ func (c *Client) Upload(ctx context.Context, o UploadOptions) (*MediaAsset, erro
 		return nil, err
 	}
 	if o.KnownSize > 0 {
-		req.ContentLength = o.KnownSize
+		total, err := measureUploadBody(o)
+		if err != nil {
+			pr.Close()
+			return nil, err
+		}
+		req.ContentLength = total
 	}
 
 	var asset MediaAsset
@@ -87,6 +100,39 @@ func (c *Client) Upload(ctx context.Context, o UploadOptions) (*MediaAsset, erro
 		return nil, err
 	}
 	return &asset, nil
+}
+
+// measureUploadBody returns the exact byte length of the multipart body for
+// an upload whose file part carries exactly KnownSize bytes. It replays the
+// form write against a zero-filled reader of that length.
+func measureUploadBody(o UploadOptions) (int64, error) {
+	var n countingWriter
+	mw := multipart.NewWriter(&n)
+	if err := mw.SetBoundary(uploadBoundary); err != nil {
+		return 0, fmt.Errorf("dreep: %w", err)
+	}
+	probe := o
+	probe.File = io.LimitReader(zeroReader{}, o.KnownSize)
+	if err := writeUploadForm(mw, probe); err != nil {
+		return 0, fmt.Errorf("dreep: measuring upload body: %w", err)
+	}
+	return n.n, nil
+}
+
+type countingWriter struct{ n int64 }
+
+func (w *countingWriter) Write(p []byte) (int, error) {
+	w.n += int64(len(p))
+	return len(p), nil
+}
+
+type zeroReader struct{}
+
+func (zeroReader) Read(p []byte) (int, error) {
+	for i := range p {
+		p[i] = 0
+	}
+	return len(p), nil
 }
 
 // writeUploadForm streams the multipart body: file first, then metadata and
