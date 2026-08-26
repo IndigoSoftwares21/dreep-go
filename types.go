@@ -1,7 +1,6 @@
 package dreep
 
 import (
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -211,41 +210,15 @@ type Folder struct {
 	AccessControlType string `json:"accessControlType,omitempty"`
 }
 
-// Preset is a named, saved transform.
+// Preset is a saved transform preset. Key is the delivery-time reference
+// used by Transform.Preset / PresignOptions.PresetKey / the "p" parameter;
+// Params echoes the stored transform parameters.
 type Preset struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-}
-
-// PresetOperation is one operation inside a preset, e.g.
-// {Action: "resize", Params: {"width": 200, "height": 200}}.
-type PresetOperation struct {
-	Action string
-	Params map[string]any
-}
-
-// MarshalJSON merges Action into the operation's parameter object under the
-// required "action" key.
-func (o PresetOperation) MarshalJSON() ([]byte, error) {
-	m := make(map[string]any, len(o.Params)+1)
-	for k, v := range o.Params {
-		m[k] = v
-	}
-	m["action"] = o.Action
-	return json.Marshal(m)
-}
-
-// UnmarshalJSON splits the "action" key out of the operation object so the
-// remaining parameters land in Params.
-func (o *PresetOperation) UnmarshalJSON(b []byte) error {
-	var m map[string]any
-	if err := json.Unmarshal(b, &m); err != nil {
-		return err
-	}
-	o.Action, _ = m["action"].(string)
-	delete(m, "action")
-	o.Params = m
-	return nil
+	ID        string         `json:"id"`
+	Key       string         `json:"key,omitempty"`
+	Name      string         `json:"name,omitempty"`
+	Params    map[string]any `json:"params,omitempty"`
+	CreatedAt time.Time      `json:"createdAt,omitempty"`
 }
 
 // Usage reports current billing-cycle counters from GET /usage.

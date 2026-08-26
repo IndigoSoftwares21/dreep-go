@@ -150,3 +150,49 @@ func TestLiveSmoke(t *testing.T) {
 		t.Logf("raw responses:\n%s", dt.dump())
 	}
 }
+
+// TestLivePresets round-trips a preset against the real API: create → list →
+// delete. It is opt-in so routine smoke runs do not leave artifacts behind:
+//
+//	DREEP_API_KEY=... DREEP_LIVE_PRESETS=1 go test -tags live -run TestLivePresets -v
+func TestLivePresets(t *testing.T) {
+	if os.Getenv("DREEP_LIVE_PRESETS") == "" {
+		t.Skip("DREEP_LIVE_PRESETS not set")
+	}
+	c := newLiveClient(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	p, err := c.CreatePreset(ctx, CreatePresetOptions{
+		Name:      "Go SDK Probe",
+		Key:       "go_sdk_probe",
+		Transform: &Transform{Width: 100, Height: 100, Format: FormatWebP, Quality: 80},
+	})
+	if err != nil {
+		t.Fatalf("CreatePreset: %v", err)
+	}
+	t.Logf("created %+v", p)
+	if p.ID == "" || p.Key != "go_sdk_probe" {
+		t.Fatalf("unexpected preset response: %+v", p)
+	}
+	defer func() {
+		if err := c.DeletePreset(context.Background(), p.ID); err != nil {
+			t.Errorf("DeletePreset(%s): %v", p.ID, err)
+		}
+	}()
+
+	ps, err := c.ListPresets(ctx)
+	if err != nil {
+		t.Fatalf("ListPresets: %v", err)
+	}
+	var found bool
+	for _, q := range ps {
+		if q.ID == p.ID {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("created preset %s missing from listing (%d presets)", p.ID, len(ps))
+	}
+}
