@@ -163,23 +163,29 @@ func TestPresetsLifecycle(t *testing.T) {
 	mux.HandleFunc("/presets", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodPost:
-			var in struct {
-				Name       string            `json:"name"`
-				Operations []PresetOperation `json:"operations"`
-			}
+			var in map[string]any
 			json.NewDecoder(r.Body).Decode(&in)
-			if in.Name != "Thumbnail Generation" {
-				t.Errorf("name = %q", in.Name)
+			if in["name"] != "Thumbnail Generation" || in["key"] != "thumbnail_gen" {
+				t.Errorf("body = %v", in)
 			}
-			b, _ := json.Marshal(in.Operations)
-			if !strings.Contains(string(b), `"action":"resize"`) ||
-				!strings.Contains(string(b), `"width":200`) {
-				t.Errorf("operations = %s", b)
+			// Transform params arrive flat on the request body.
+			if in["width"] != float64(200) || in["height"] != float64(200) || in["format"] != "webp" {
+				t.Errorf("flat params = %v", in)
 			}
-			json.NewEncoder(w).Encode(map[string]any{"id": "p1", "name": in.Name})
+			w.WriteHeader(http.StatusCreated)
+			json.NewEncoder(w).Encode(map[string]any{
+				"message": "Preset created",
+				"code":    201,
+				"data": map[string]any{
+					"id": "p1", "key": "thumbnail_gen", "name": "Thumbnail Generation",
+					"params": map[string]any{"width": 200, "height": 200, "format": "webp"},
+				},
+			})
 		case http.MethodGet:
 			// GET /presets responds with a bare top-level array.
-			json.NewEncoder(w).Encode([]map[string]any{{"id": "p1", "name": "Thumbnail Generation"}})
+			json.NewEncoder(w).Encode([]map[string]any{{
+				"id": "p1", "key": "thumbnail_gen", "name": "Thumbnail Generation",
+			}})
 		}
 	})
 	mux.HandleFunc("/presets/p1", func(w http.ResponseWriter, r *http.Request) {
@@ -192,13 +198,15 @@ func TestPresetsLifecycle(t *testing.T) {
 	defer srv.Close()
 
 	c, _ := New("k", WithAPIBaseURL(srv.URL))
-	p, err := c.CreatePreset(context.Background(), "Thumbnail Generation", []PresetOperation{
-		{Action: "resize", Params: map[string]any{"width": 200, "height": 200}},
+	p, err := c.CreatePreset(context.Background(), CreatePresetOptions{
+		Name:      "Thumbnail Generation",
+		Key:       "thumbnail_gen",
+		Transform: &Transform{Width: 200, Height: 200, Format: FormatWebP},
 	})
 	if err != nil {
 		t.Fatalf("CreatePreset: %v", err)
 	}
-	if p.ID != "p1" {
+	if p.ID != "p1" || p.Key != "thumbnail_gen" {
 		t.Errorf("preset = %+v", p)
 	}
 	ps, err := c.ListPresets(context.Background())
