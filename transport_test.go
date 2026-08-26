@@ -3,6 +3,7 @@ package dreep
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -68,6 +69,40 @@ func TestErrorMappingDocumentedShape(t *testing.T) {
 	}
 	if !IsInvalidRequest(err) {
 		t.Error("IsInvalidRequest = false")
+	}
+}
+
+func TestErrorMappingBillingLimitFields(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusPaymentRequired)
+		// used/limit as BIGINT-as-string, as the API serialises them.
+		w.Write([]byte(`{"error": true, "message": "Background removal limit reached", "code": "limit_reached", "featureKey": "bg-removal", "used": "50", "limit": "50"}`))
+	}))
+	defer srv.Close()
+
+	c, _ := New("k", WithAPIBaseURL(srv.URL))
+	_, err := c.RemoveBackground(context.Background(), strings.NewReader("x"), "med_1", nil)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !IsPaymentRequired(err) {
+		t.Errorf("IsPaymentRequired = false for %v", err)
+	}
+	key, ok := FeatureLimit(err)
+	if !ok || key != "bg-removal" {
+		t.Fatalf("FeatureLimit = %q, %v", key, ok)
+	}
+	var e *Error
+	errors.As(err, &e)
+	if e.Used.Int64() != 50 || e.Limit.Int64() != 50 {
+		t.Errorf("used=%d limit=%d", e.Used.Int64(), e.Limit.Int64())
+	}
+
+	// Non-limit errors carry no feature metadata.
+	_, plain := FeatureLimit(errors.New("x"))
+	if plain {
+		t.Error("FeatureLimit reported true for a non-dreep error")
 	}
 }
 

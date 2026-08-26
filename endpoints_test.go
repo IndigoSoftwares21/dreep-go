@@ -178,9 +178,8 @@ func TestPresetsLifecycle(t *testing.T) {
 			}
 			json.NewEncoder(w).Encode(map[string]any{"id": "p1", "name": in.Name})
 		case http.MethodGet:
-			json.NewEncoder(w).Encode(map[string]any{
-				"presets": []map[string]any{{"id": "p1", "name": "Thumbnail Generation"}},
-			})
+			// GET /presets responds with a bare top-level array.
+			json.NewEncoder(w).Encode([]map[string]any{{"id": "p1", "name": "Thumbnail Generation"}})
 		}
 	})
 	mux.HandleFunc("/presets/p1", func(w http.ResponseWriter, r *http.Request) {

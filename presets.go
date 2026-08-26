@@ -27,14 +27,13 @@ func (c *Client) CreatePreset(ctx context.Context, name string, operations []Pre
 }
 
 // ListPresets returns every saved transform preset in the project.
+// GET /presets responds with a bare top-level array.
 func (c *Client) ListPresets(ctx context.Context) ([]Preset, error) {
-	var out struct {
-		Presets []Preset `json:"presets"`
-	}
+	var out []Preset
 	if err := c.doJSON(ctx, http.MethodGet, "/presets", nil, nil, &out); err != nil {
 		return nil, err
 	}
-	return out.Presets, nil
+	return out, nil
 }
 
 // DeletePreset removes the preset with the given ID.

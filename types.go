@@ -2,6 +2,7 @@ package dreep
 
 import (
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -110,8 +111,10 @@ type Transform struct {
 	Preset     string     // saved transform preset key (sent as "p")
 }
 
-// transformMap renders t as the JSON object the API expects on JSON bodies
-// (confirm uploads). Values are plain strings/numbers/nested objects.
+// transformMap renders t as the parameters the API expects on upload-time
+// bodies (multipart form fields and confirm-upload JSON). Crop is rendered as
+// the comma-separated "left,top,width,height" form, matching transformQuery
+// so delivery URLs and uploads encode it identically.
 func transformMap(t *Transform) map[string]any {
 	if t == nil {
 		return map[string]any{}
@@ -151,10 +154,7 @@ func transformMap(t *Transform) map[string]any {
 	setStr("radius", t.Radius)
 	setStr("p", t.Preset)
 	if t.Crop != nil {
-		m["crop"] = map[string]int{
-			"left": t.Crop.Left, "top": t.Crop.Top,
-			"width": t.Crop.Width, "height": t.Crop.Height,
-		}
+		m["crop"] = fmt.Sprintf("%d,%d,%d,%d", t.Crop.Left, t.Crop.Top, t.Crop.Width, t.Crop.Height)
 	}
 	if t.TrimStart != nil {
 		m["trimStart"] = *t.TrimStart

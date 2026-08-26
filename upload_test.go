@@ -84,7 +84,7 @@ func TestUploadSendsMultipartFields(t *testing.T) {
 		"quality": "80",
 		"rotate":  "90",
 		"bg":      "ffffff",
-		"crop":    `{"height":4,"left":1,"top":2,"width":3}`,
+		"crop":    "1,2,3,4",
 	}
 	for k, v := range want {
 		if gotFields[k] != v {

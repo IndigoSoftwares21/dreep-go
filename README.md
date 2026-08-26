@@ -143,6 +143,16 @@ case dreep.IsInvalidRequest(err):
 Fields that the API serialises as strings for BIGINT safety (e.g.
 `sizeBytes`, `storageBytes`) decode transparently via `.Int64()`.
 
+Billing-limit errors carry extra detail when the API provides it:
+
+```go
+if key, ok := dreep.FeatureLimit(err); ok {
+    var e *dreep.Error
+    errors.As(err, &e)
+    log.Printf("limit hit on %s: used %d of %d", key, e.Used.Int64(), e.Limit.Int64())
+}
+```
+
 ## Development
 
 ```
@@ -159,6 +169,13 @@ DREEP_API_KEY=drp_live_... go test -tags live -run TestLiveSmoke -v
 
 It is excluded from normal builds and skipped without `DREEP_API_KEY`;
 set `DREEP_DEBUG=1` to log raw response bodies.
+
+## Project & community
+
+* [Contributing guide](CONTRIBUTING.md) — ground rules and how to get started
+* [Code of Conduct](CODE_OF_CONDUCT.md) — Contributor Covenant v2.1
+* [Security policy](SECURITY.md) — report vulnerabilities privately
+* [Issue tracker](https://github.com/IndigoSoftwares21/dreep-go/issues)
 
 ## License
 

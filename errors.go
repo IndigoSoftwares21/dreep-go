@@ -18,6 +18,13 @@ type Error struct {
 	Code string
 	// Message is the human-readable error message.
 	Message string
+
+	// FeatureKey, Used and Limit are populated only on billing-limit errors
+	// (402) when the API includes them: which feature was hit and the usage
+	// against its cap. Zero-valued on every other error.
+	FeatureKey string
+	Used       flexInt64
+	Limit      flexInt64
 }
 
 func (e *Error) Error() string {
@@ -25,6 +32,17 @@ func (e *Error) Error() string {
 		return fmt.Sprintf("dreep: %d %s: %s", e.StatusCode, e.Code, e.Message)
 	}
 	return fmt.Sprintf("dreep: %d: %s", e.StatusCode, e.Message)
+}
+
+// FeatureLimit reports whether err is a 402 carrying feature/limit detail,
+// returning the hit feature key. It reports false (and an empty key) for any
+// other error, including 402s without limit metadata.
+func FeatureLimit(err error) (string, bool) {
+	var e *Error
+	if !errors.As(err, &e) || e.FeatureKey == "" {
+		return "", false
+	}
+	return e.FeatureKey, true
 }
 
 // IsNotFound reports whether err is a 404 from the API (e.g. unknown media id
@@ -70,11 +88,18 @@ func hasStatus(err error, codes ...int) bool {
 //
 //	{"error": true, "message": "...", "code": "invalid_request"}
 //	{"error": "Billing limit reached", "details": "You have exceeded ..."}
+//
+// plus the optional billing-limit metadata documented on limit errors
+// (featureKey, used, limit). Used/Limit tolerate both JSON numbers and
+// BIGINT-as-string values.
 type apiErrorBody struct {
-	Error   json.RawMessage `json:"error"`
-	Message string          `json:"message"`
-	Code    string          `json:"code"`
-	Details string          `json:"details"`
+	Error      json.RawMessage `json:"error"`
+	Message    string          `json:"message"`
+	Code       string          `json:"code"`
+	Details    string          `json:"details"`
+	FeatureKey string          `json:"featureKey"`
+	Used       flexInt64       `json:"used"`
+	Limit      flexInt64       `json:"limit"`
 }
 
 func (c *Client) errorFromResponse(resp *http.Response) error {
@@ -102,6 +127,11 @@ func (c *Client) errorFromResponse(resp *http.Response) error {
 			e.Message = strings.TrimSpace(ae.Details)
 		}
 		e.Code = ae.Code
+		e.FeatureKey = ae.FeatureKey
+		if ae.FeatureKey != "" {
+			e.Used = ae.Used
+			e.Limit = ae.Limit
+		}
 	}
 	return e
 }
